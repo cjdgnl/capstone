@@ -146,7 +146,7 @@ class MapsActivity : ComponentActivity() {
                 val startNavigationButton = findViewById<Button>(R.id.startNavigationButton)
                 startNavigationButton.setOnClickListener{
                     // 결과를 다음 액티비티로 전달
-                    val intent = Intent(this@MapsActivity, SubActivity2::class.java)
+                    val intent = Intent(this@MapsActivity, MainActivity::class.java)
                     intent.putExtra("responseString", responseString)
                     startActivity(intent)
                     responseBody.close()

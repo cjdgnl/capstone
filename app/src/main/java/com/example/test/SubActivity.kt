@@ -3,17 +3,18 @@ package com.example.test
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.widget.Button
 import android.widget.LinearLayout
+import android.os.Handler
+import android.os.Looper
+import android.speech.tts.*
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationServices
 import com.google.gson.Gson
 import com.skt.Tmap.TMapMarkerItem
 import com.skt.Tmap.TMapPoint
@@ -26,13 +27,14 @@ import okhttp3.RequestBody
 import org.json.JSONObject
 import java.net.URLEncoder
 import kotlinx.coroutines.*
+import java.util.*
 
 class SubActivity : ComponentActivity() {
     // 위치 권한 요청 코드
     private val LOCATION_PERMISSION_REQUEST = 1
     private val client = OkHttpClient()
-    private lateinit var fusedLocationClient: FusedLocationProviderClient // 안드로이드서 제공하는 위치 정보 서비스 api (ㄱㅈㅅ)
     private lateinit var tMapView: TMapView
+    private lateinit var tts: TextToSpeech
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,7 +48,6 @@ class SubActivity : ComponentActivity() {
 
         val linearLayoutTmap = findViewById<LinearLayout>(R.id.LinearLayout)
         linearLayoutTmap.addView(tMapView)
-        //val button = findViewById<Button>(R.id.startButton)
 
         if (ContextCompat.checkSelfPermission(
                 this,
@@ -61,29 +62,24 @@ class SubActivity : ComponentActivity() {
             )
         }else{
             // 임의로 설정(변경 필요)
-            val end_X = 127.080649
-            val end_Y = 37.799686
+            val end_X = 127.045133//127.080649
+            val end_Y = 37.677668//37.799686
             val end_Name_String = "도착지"
             val end_Name = URLEncoder.encode(end_Name_String, "UTF-8")
 
-            // 현재 위치 받아오기
-            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                if (location != null) {
-                    val start_X = 127.071336 //location.latitude
-                    val start_Y = 37.810042 //location.longitude
+            val start_X = 127.043548//127.0697 //location.latitude
+            val start_Y = 37.674506//37.8105 //location.longitude
+            val start_Name_String = "현재 위치"
+            val start_Name = URLEncoder.encode(start_Name_String, "UTF-8")
 
-                    Log.e("start_X", "${start_X}")
-                    Log.e("start_Y", "${start_Y}")
-
-                    val start_Name_String = "출발지"
-                    val start_Name = URLEncoder.encode(start_Name_String, "UTF-8")
-
-                    if(tMapView != null){
-                        tMapView.setCenterPoint(start_X, start_Y)
-                    }
-                    updateRoute(start_X, start_Y, end_X, end_Y, start_Name, end_Name) //Tmap 대중교통 API를 호출하는 함수
-                }
+            if(tMapView != null){
+                tMapView.setCenterPoint(start_X, start_Y)
+            }
+            updateRoute(start_X, start_Y, end_X, end_Y, start_Name, end_Name) //Tmap 대중교통 API를 호출하는 함수
+        }
+        tts = TextToSpeech(this) { status ->
+            if (status != TextToSpeech.ERROR) {
+                tts.language = Locale.KOREAN
             }
         }
     }
@@ -133,6 +129,7 @@ class SubActivity : ComponentActivity() {
                     val jsonData = JSONObject(responseString)
                     val features = jsonData.getJSONArray("features")
 
+
                     val tMapPolyLine = TMapPolyLine()
 
                     for (i in 0 until features.length()) {
@@ -153,7 +150,7 @@ class SubActivity : ComponentActivity() {
                     tMapView.addTMapPolyLine("tMapPolyLine", tMapPolyLine)
 
                     // 출발지와 도착지를 지도 화면에 꽉 차게 보여주도록 지도의 축척을 설정
-                    tMapView.zoomToSpan(Math.abs(start_Y - end_Y)*1.5, Math.abs(start_X - end_X))
+                    tMapView.zoomToSpan((Math.abs(start_Y - end_Y)*1.5), Math.abs(start_X - end_X))
 
                     // 출발지와 도착지의 중간 지점을 계산
                     val middlePointX = (start_X + end_X) / 2
@@ -164,7 +161,7 @@ class SubActivity : ComponentActivity() {
 
                     val startMarker = TMapMarkerItem().apply {
                         tMapPoint = startPoint
-                        icon = (resources.getDrawable(R.drawable.poi_star, null) as BitmapDrawable).bitmap
+                        icon = (resources.getDrawable(R.drawable.start, null) as BitmapDrawable).bitmap
                         setPosition(0.5f, 1.0f)
                         // 마커의 라벨 설정
                         calloutTitle = "출발지"
@@ -186,6 +183,91 @@ class SubActivity : ComponentActivity() {
                     }
                     tMapView.addMarkerItem("endMarker", endMarker)
 
+                    // 총 거리, 예상 소요시간 tts로 알려주기
+                    val feature = features.getJSONObject(0)
+                    val properties = feature.getJSONObject("properties")
+
+                    val totalDistance = properties.getInt("totalDistance")
+                    val totalDistance_KM = totalDistance/1000 // km
+                    val totalDistance_M = totalDistance%1000 // m
+
+                    val totalTime = properties.getInt("totalTime")
+                    val totalTime_hour = totalTime/3600 // 시간
+                    val totalTime_minute = totalTime/60 // 분
+                    val totalTime_second = totalTime%60 // 초
+
+                    val handler = Handler(Looper.getMainLooper())
+                    handler.postDelayed({
+                        if(totalDistance_KM == 0){
+                            if(totalTime_hour == 0){
+                                val totalText = "총 거리는 $totalDistance_M 미터 이고, 예상 소요 시간은 $totalTime_minute 분 $totalTime_second 초 입니다. 경로 안내를 시작하겠습니다."
+                                tts.speak(totalText, TextToSpeech.QUEUE_ADD, null, null)
+                                tts.setSpeechRate(3.0f)
+                                for (i in 0 until features.length()) {
+                                    val feature = features.getJSONObject(i)
+                                    val properties = feature.getJSONObject("properties")
+                                    if(properties.has("lineIndex")){
+                                        continue
+                                    }
+                                    val description = properties.getString("description")
+                                    tts.speak(description, TextToSpeech.QUEUE_ADD, null, null)
+                                    tts.setSpeechRate(3.0f) // 읽어주는 속도를 조절. 1.0이 기본값.
+                                }
+                                tts.speak("경로 안내를 종료합니다. 안내를 시작하고 싶으면 화면 하단을 눌러주세요.", TextToSpeech.QUEUE_ADD, null, null)
+                            }
+                            else{
+                                val totalText = "총 거리는 $totalDistance_M 미터 이고, 예상 소요 시간은 $totalTime_hour 시간 $totalTime_minute 분 $totalTime_second 초 입니다. 경로 안내를 시작하겠습니다."
+                                tts.speak(totalText, TextToSpeech.QUEUE_ADD, null, null)
+                                tts.setSpeechRate(3.0f)
+                                for (i in 0 until features.length()) {
+                                    val feature = features.getJSONObject(i)
+                                    val properties = feature.getJSONObject("properties")
+                                    if(properties.has("lineIndex")){
+                                        continue
+                                    }
+                                    val description = properties.getString("description")
+                                    tts.speak(description, TextToSpeech.QUEUE_ADD, null, null)
+                                    tts.setSpeechRate(3.0f) // 읽어주는 속도를 조절. 1.0이 기본값.
+                                }
+                                tts.speak("경로 안내를 종료합니다. 안내를 시작하고 싶으면 화면 하단을 눌러주세요.", TextToSpeech.QUEUE_ADD, null, null)
+                            }
+                        }else{
+                            if(totalTime_hour == 0){
+                                val totalText = "총 거리는 $totalDistance_KM 킬로미터 $totalDistance_M 미터 이고, 예상 소요 시간은 $totalTime_minute 분 $totalTime_second 초 입니다. 경로 안내를 시작하겠습니다."
+                                tts.speak(totalText, TextToSpeech.QUEUE_ADD, null, null)
+                                tts.setSpeechRate(3.0f)
+                                for (i in 0 until features.length()) {
+                                    val feature = features.getJSONObject(i)
+                                    val properties = feature.getJSONObject("properties")
+                                    if(properties.has("lineIndex")){
+                                        continue
+                                    }
+                                    val description = properties.getString("description")
+                                    tts.speak(description, TextToSpeech.QUEUE_ADD, null, null)
+                                    tts.setSpeechRate(3.0f) // 읽어주는 속도를 조절. 1.0이 기본값.
+                                }
+                                tts.speak("경로 안내를 종료합니다. 안내를 시작하고 싶으면 화면 하단을 눌러주세요.", TextToSpeech.QUEUE_ADD, null, null)
+                            }
+                            else{
+                                val totalText = "총 거리는 $totalDistance_KM 킬로미터 $totalDistance_M 미터 이고, 예상 소요 시간은 $totalTime_hour 시간 $totalTime_minute 분 $totalTime_second 초 입니다. 경로 안내를 시작하겠습니다."
+                                tts.setSpeechRate(3.0f)
+                                tts.speak(totalText, TextToSpeech.QUEUE_ADD, null, null)
+                                for (i in 0 until features.length()) {
+                                    val feature = features.getJSONObject(i)
+                                    val properties = feature.getJSONObject("properties")
+                                    if(properties.has("lineIndex")){
+                                        continue
+                                    }
+                                    val description = properties.getString("description")
+                                    tts.speak(description, TextToSpeech.QUEUE_ADD, null, null)
+                                    tts.setSpeechRate(3.0f) // 읽어주는 속도를 조절. 1.0이 기본값.
+                                }
+                                tts.speak("경로 안내를 종료합니다. 안내를 시작하고 싶으면 화면 하단을 눌러주세요.", TextToSpeech.QUEUE_ADD, null, null)
+                            }
+                        }
+                    }, 1000) // 1초 딜레이
+                    //
+
                     val startNavigationButton = findViewById<Button>(R.id.startButton)
                     startNavigationButton.setOnClickListener {
                         val intent = Intent(this@SubActivity, SubActivity2::class.java)
@@ -195,13 +277,21 @@ class SubActivity : ComponentActivity() {
                             list.add(features.getString(i))
                         }
                         intent.putStringArrayListExtra("features", list)
+                        intent.putExtra("현재위치_X좌표", start_X)
+                        intent.putExtra("현재위치_Y좌표", start_Y)
+
                         startActivity(intent)
                     }
-
                 } else {
                     Log.e("실패", "${response.code}")
                 }
             }
+        }
+    }
+    override fun onPause() {
+        super.onPause()
+        if (tts != null) {
+            tts.stop()
         }
     }
     data class RequestData(
