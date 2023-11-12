@@ -145,7 +145,7 @@ class SubActivity2:  ComponentActivity() {
 
 
         while (pointIndex < pointFeatures?.size ?: 0 || lineIndex < lineFeatures.size) {
-            // pointFeatures를 처리합니다.
+            // pointFeatures를 처리
             if (pointIndex < pointFeatures?.size ?: 0) {
                 val pointFeature = pointFeatures?.get(pointIndex)
                 val pointProperties = pointFeature?.getJSONObject("properties")
